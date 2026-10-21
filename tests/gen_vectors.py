@@ -116,6 +116,77 @@ test "sm4 ecb/cbc golden vectors" {{
 """
 
 
+def openssl_sm4_ctr(key: bytes, iv: bytes, msg: bytes) -> bytes:
+    """以 OpenSSL 命令行独立计算 SM4-CTR（python-gmssl 未提供该模式）。"""
+    import subprocess
+
+    p = subprocess.run(
+        [
+            "openssl",
+            "enc",
+            "-sm4-ctr",
+            "-K",
+            key.hex(),
+            "-iv",
+            iv.hex(),
+            "-nosalt",
+        ],
+        input=msg,
+        capture_output=True,
+        check=True,
+    )
+    return p.stdout
+
+
+def gen_ctr() -> str:
+    """SM4-CTR 向量：明文长度 0..128 全覆盖，及计数器进位 IV 用例。"""
+    drbg = Drbg(SEED + b"sm4-ctr")
+    cases = []
+    for n in range(0, 129):
+        key = det_bytes(16, drbg)
+        iv = det_bytes(16, drbg)
+        msg = det_bytes(n, drbg)
+        cases.append((key, iv, msg, openssl_sm4_ctr(key, iv, msg)))
+    # 进位用例：末字/末两字/全 F 的 IV，80 字节消息触发进位链与回绕
+    for iv_hex in [
+        "101112131415161718191a1bffffffff",
+        "0000000000000000ffffffffffffffff",
+        "ffffffffffffffffffffffffffffffff",
+    ]:
+        key = det_bytes(16, drbg)
+        msg = det_bytes(80, drbg)
+        iv = bytes.fromhex(iv_hex)
+        cases.append((key, iv, msg, openssl_sm4_ctr(key, iv, msg)))
+    lines = [
+        f'    ("{k.hex()}", "{i.hex()}", "{m.hex()}", "{c.hex()}"),'
+        for k, i, m, c in cases
+    ]
+    body = "\n".join(lines)
+    return f"""///|
+// 自动生成：tests/gen_vectors.py（固定种子 SHA-256 DRBG）。
+// 期望值来源：OpenSSL 3.0.17 enc -sm4-ctr（python-gmssl 未提供 CTR 模式，
+// openssl 为该模式的独立期望值来源）。
+// 明文长度 0..128 全覆盖，另含 3 组计数器进位 IV 用例（末字/末两字/全 F）。
+// 字段：(key_hex, iv_hex, msg_hex, ct_hex)。
+// 请勿手工修改。
+
+test "sm4 ctr golden vectors" {{
+  let vectors : FixedArray[(String, String, String, String)] = [
+{body}
+  ]
+  for entry in vectors {{
+    let (key_hex, iv_hex, msg_hex, ct_hex) = entry
+    let key = Sm4Key::new(@util.hex_decode(key_hex))
+    let iv = @util.hex_decode(iv_hex)
+    let msg = @util.hex_decode(msg_hex)
+    let ct = @util.hex_decode(ct_hex)
+    inspect(ctr_crypt(key, iv, msg) == ct, content="true")
+    inspect(ctr_crypt(key, iv, ct) == msg, content="true")
+  }}
+}}
+"""
+
+
 def string_literals(text: str) -> list:
     """提取 MoonBit 源码中全部字符串字面量，用于语义比较。
 
@@ -133,6 +204,7 @@ def main() -> None:
     targets = [("src/sm3/golden_wbtest.mbt", gen_sm3)]
     if "--with-sm4" in sys.argv:
         targets.append(("src/sm4/golden_wbtest.mbt", gen_sm4))
+        targets.append(("src/sm4/ctr_golden_wbtest.mbt", gen_ctr))
     mismatch = 0
     for relpath, gen in targets:
         content = gen()

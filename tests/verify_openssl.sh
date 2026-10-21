@@ -121,6 +121,23 @@ check_sm4_cbc_padded "pkcs7-msg32" "$SM4_K" "$SM4_IV" \
     "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF" \
     "8f57b32e3c0b8061cd25a8e2100c345b77b4c389d8b584c0608c76d555bf132d"
 
+# ---------- SM4-CTR：流式模式与计数器进位（NIST SP 800-38A §6.5） ----------
+
+# check_sm4_ctr NAME KEY_HEX IV_HEX MSG_HEX EXPECTED_HEX
+check_sm4_ctr() {
+    check_sm4_enc "$1" sm4-ctr "$2" "$3" "$4" "$5" pad
+}
+
+check_sm4_ctr "stream-32B" "0123456789ABCDEFFEDCBA9876543210" \
+    "000102030405060708090A0B0C0D0E0F" \
+    "3031323334353637383961626364656630313233343536373839616263646566" \
+    "36a9ae5209935e9a12b496e082cc9c0c5f363f787496ca36e2a87287e264c87c"
+# IV 末字 0xFFFFFFFF：跨块递增向高位字进位（消息为 (31i+13) mod 256 序列，48 字节）
+check_sm4_ctr "counter-carry" "0123456789ABCDEFFEDCBA9876543210" \
+    "101112131415161718191A1BFFFFFFFF" \
+    "$(python3 -c "print(bytes((i*31+13)%256 for i in range(48)).hex())")" \
+    "17a9c20247fbaac5d519499678608546417ff55ad564858803d9e90404487ade6b1b05f91a40f2fa73585239e84edb97"
+
 # ---------- 汇总 ----------
 
 echo "openssl cross-check: passed=$pass failed=$fail"
