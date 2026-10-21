@@ -54,7 +54,8 @@ fn p1(x : UInt32) -> UInt32 {
   x ^ @util.rotl32(x, 15) ^ @util.rotl32(x, 23)
 }
 
-///| 常量 T_j：0x79CC4519（0 ≤ j ≤ 15），0x7A879D8A（16 ≤ j ≤ 63）；
+///|
+/// 常量 T_j：0x79CC4519（0 ≤ j ≤ 15），0x7A879D8A（16 ≤ j ≤ 63）；
 /// 压缩函数第 j 轮按 TR_j = ROTL(T_j, j mod 32) 参与 SS1 计算。
 /// 此处在初始化时一次性预计算 64 项表，消除压缩循环内的重复移位。
 fn sm3_tr_table() -> FixedArray[UInt32] {
@@ -66,11 +67,12 @@ fn sm3_tr_table() -> FixedArray[UInt32] {
   tr
 }
 
+///|
 let sm3_tr : FixedArray[UInt32] = sm3_tr_table()
 
 ///|
 /// 压缩函数 CF：以 `msg` 自 `base` 起的 512 位分组更新 256 位杂凑值 `v`。
-fn sm3_compress(v : FixedArray[UInt32], msg : Bytes, base : Int) -> Unit {
+fn sm3_compress(v : FixedArray[UInt32], msg : Bytes, base : Int32) -> Unit {
   let w : FixedArray[UInt32] = FixedArray::make(68, 0)
   let w1 : FixedArray[UInt32] = FixedArray::make(64, 0)
   for j = 0; j < 16; j = j + 1 {
@@ -118,12 +120,15 @@ fn sm3_compress(v : FixedArray[UInt32], msg : Bytes, base : Int) -> Unit {
 }
 
 ///| SM3 流式计算上下文。`v` 为当前 256 位杂凑值；`buf` 为 64 字节
+
 ///| 分组缓冲，`buf_len` 为已缓冲字节数（恒小于 64，满即压缩）；
-///| `total_bits` 为已吸收的总比特数。
+
+///|
+/// `total_bits` 为已吸收的总比特数。
 pub struct Sm3 {
   priv v : FixedArray[UInt32]
   priv buf : FixedArray[Byte]
-  priv mut buf_len : Int
+  priv mut buf_len : Int32
   priv mut total_bits : UInt64
 }
 
@@ -138,7 +143,8 @@ pub fn Sm3::new() -> Sm3 {
   }
 }
 
-///| 压缩 `buf` 中的完整分组并清零缓冲计数。
+///|
+/// 压缩 `buf` 中的完整分组并清零缓冲计数。
 fn Sm3::flush(self : Sm3) -> Unit {
   sm3_compress(self.v, Bytes::from_array(self.buf), 0)
   self.buf_len = 0
@@ -146,7 +152,9 @@ fn Sm3::flush(self : Sm3) -> Unit {
 
 ///|
 /// 吸收消息片段。可多次调用，次序即消息的字节次序。
-///| 整块数据自 `msg` 原位压缩（零拷贝），仅不足一组的尾部入缓冲。
+
+///|
+/// 整块数据自 `msg` 原位压缩（零拷贝），仅不足一组的尾部入缓冲。
 pub fn Sm3::update(self : Sm3, msg : Bytes) -> Unit {
   self.total_bits = self.total_bits + (msg.length() * 8).to_uint64()
   let mut pos = 0

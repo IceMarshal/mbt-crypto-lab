@@ -6,7 +6,8 @@
 // 直接调用字级轮函数核心 sm4_crypt_words，输出写入预分配的
 // 定长数组，避免逐块构造中间 Bytes 与可增长数组的摊还开销。
 
-///| SM4-ECB 加密（PKCS#7 填充）：C_i = E_K(P_i)。
+///|
+/// SM4-ECB 加密（PKCS#7 填充）：C_i = E_K(P_i)。
 pub fn ecb_encrypt(key : Sm4Key, msg : Bytes) -> Bytes {
   let padded = @util.pkcs7_pad(msg, 16)
   let n = padded.length()
@@ -28,7 +29,8 @@ pub fn ecb_encrypt(key : Sm4Key, msg : Bytes) -> Bytes {
   Bytes::from_array(out)
 }
 
-///| SM4-ECB 解密并校验去除 PKCS#7 填充；密文长度须为 16 的非零整数倍。
+///|
+/// SM4-ECB 解密并校验去除 PKCS#7 填充；密文长度须为 16 的非零整数倍。
 pub fn ecb_decrypt(key : Sm4Key, ct : Bytes) -> Bytes raise Error {
   let n = ct.length()
   if n == 0 || n % 16 != 0 {
@@ -55,7 +57,9 @@ pub fn ecb_decrypt(key : Sm4Key, ct : Bytes) -> Bytes raise Error {
 }
 
 ///| SM4-CBC 加密（PKCS#7 填充）：C_i = E_K(P_i ⊕ C_{i-1})，C_0 = IV。
-///| `iv` 长度须为 16。
+
+///|
+/// `iv` 长度须为 16。
 pub fn cbc_encrypt(key : Sm4Key, iv : Bytes, msg : Bytes) -> Bytes raise Error {
   if iv.length() != 16 {
     raise Failure("cbc_encrypt: iv must be 16 bytes, got \{iv.length()}")
@@ -89,7 +93,9 @@ pub fn cbc_encrypt(key : Sm4Key, iv : Bytes, msg : Bytes) -> Bytes raise Error {
 }
 
 ///| SM4-CBC 解密并校验去除 PKCS#7 填充：P_i = D_K(C_i) ⊕ C_{i-1}。
-///| `iv` 长度须为 16，密文长度须为 16 的非零整数倍。
+
+///|
+/// `iv` 长度须为 16，密文长度须为 16 的非零整数倍。
 pub fn cbc_decrypt(key : Sm4Key, iv : Bytes, ct : Bytes) -> Bytes raise Error {
   if iv.length() != 16 {
     raise Failure("cbc_decrypt: iv must be 16 bytes, got \{iv.length()}")

@@ -151,9 +151,13 @@ pub fn Sm4Key::from_hex(s : String) -> Sm4Key raise Error {
 }
 
 ///| 字级轮函数核心：输入四个 32 位字，32 轮迭代
+
 ///| X[i+4] = X[i] ⊕ T(X[i+1] ⊕ X[i+2] ⊕ X[i+3] ⊕ rk_i)，
+
 ///| 以四个寄存器轮转实现；解密时轮密钥按逆序取用。
-///| 返回终态 (X35, X34, X33, X32)。
+
+///|
+/// 返回终态 (X35, X34, X33, X32)。
 fn sm4_crypt_words(
   rk : FixedArray[UInt32],
   x0 : UInt32,
@@ -177,7 +181,8 @@ fn sm4_crypt_words(
   (d, c, b, a)
 }
 
-///| 内部分组处理（无长度校验）：经 `sm4_crypt_words` 加解密单个分组。
+///|
+/// 内部分组处理（无长度校验）：经 `sm4_crypt_words` 加解密单个分组。
 fn sm4_crypt_block(
   rk : FixedArray[UInt32],
   block : Bytes,
