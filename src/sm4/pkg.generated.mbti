@@ -1,0 +1,19 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "icemarshal/crypto-lab/src/sm4"
+
+// Values
+
+// Errors
+
+// Types and methods
+pub struct Sm4Key {
+  // private fields
+}
+pub fn Sm4Key::decrypt_block(Self, Bytes) -> Bytes raise
+pub fn Sm4Key::encrypt_block(Self, Bytes) -> Bytes raise
+pub fn Sm4Key::from_hex(String) -> Self raise
+pub fn Sm4Key::new(Bytes) -> Self raise
+
+// Type aliases
+
+// Traits
