@@ -1,0 +1,19 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "icemarshal/crypto-lab/src/util"
+
+// Values
+pub fn be32_load(Bytes, Int32) -> UInt32
+
+pub fn be32_push(Array[Byte], UInt32) -> Unit
+
+pub fn be32_store(FixedArray[Byte], Int32, UInt32) -> Unit
+
+pub fn rotl32(UInt32, Int32) -> UInt32
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
