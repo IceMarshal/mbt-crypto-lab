@@ -8,6 +8,10 @@ pub fn be32_push(Array[Byte], UInt32) -> Unit
 
 pub fn be32_store(FixedArray[Byte], Int32, UInt32) -> Unit
 
+pub fn hex_decode(String) -> Bytes raise
+
+pub fn hex_encode(Bytes) -> String
+
 pub fn rotl32(UInt32, Int32) -> UInt32
 
 // Errors
