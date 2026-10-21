@@ -69,12 +69,12 @@ fn sm3_tr_table() -> FixedArray[UInt32] {
 let sm3_tr : FixedArray[UInt32] = sm3_tr_table()
 
 ///|
-/// 压缩函数 CF：以 512 位分组 `block` 更新 256 位杂凑值 `v`。
-fn sm3_compress(v : FixedArray[UInt32], block : Bytes) -> Unit {
+/// 压缩函数 CF：以 `msg` 自 `base` 起的 512 位分组更新 256 位杂凑值 `v`。
+fn sm3_compress(v : FixedArray[UInt32], msg : Bytes, base : Int) -> Unit {
   let w : FixedArray[UInt32] = FixedArray::make(68, 0)
   let w1 : FixedArray[UInt32] = FixedArray::make(64, 0)
   for j = 0; j < 16; j = j + 1 {
-    w[j] = @util.be32_load(block, j * 4)
+    w[j] = @util.be32_load(msg, base + j * 4)
   }
   for j = 16; j < 68; j = j + 1 {
     w[j] = p1(w[j - 16] ^ w[j - 9] ^ @util.rotl32(w[j - 3], 15)) ^
@@ -117,42 +117,64 @@ fn sm3_compress(v : FixedArray[UInt32], block : Bytes) -> Unit {
   v[7] = v[7] ^ h
 }
 
-///| SM3 流式计算上下文。`v` 为当前 256 位杂凑值，`buf` 缓存不足一个
-
-///|
-/// 分组的字节（长度恒小于 64），`total_bits` 为已吸收的总比特数。
+///| SM3 流式计算上下文。`v` 为当前 256 位杂凑值；`buf` 为 64 字节
+///| 分组缓冲，`buf_len` 为已缓冲字节数（恒小于 64，满即压缩）；
+///| `total_bits` 为已吸收的总比特数。
 pub struct Sm3 {
   priv v : FixedArray[UInt32]
-  priv mut buf : Array[Byte]
+  priv buf : FixedArray[Byte]
+  priv mut buf_len : Int
   priv mut total_bits : UInt64
 }
 
 ///|
 /// 创建处于初始状态（杂凑值为 IV、计数为零）的 SM3 上下文。
 pub fn Sm3::new() -> Sm3 {
-  { v: sm3_iv(), buf: [], total_bits: 0, }
+  {
+    v: sm3_iv(),
+    buf: FixedArray::make(64, b'\x00'),
+    buf_len: 0,
+    total_bits: 0,
+  }
 }
 
-///|
-/// 吸收单字节；缓冲满 64 字节时立即执行一次压缩。
-fn Sm3::absorb(self : Sm3, b : Byte) -> Unit {
-  self.buf.push(b)
-  if self.buf.length() == 64 {
-    let block : FixedArray[Byte] = FixedArray::make(64, b'\x00')
-    for i = 0; i < 64; i = i + 1 {
-      block[i] = self.buf[i]
-    }
-    sm3_compress(self.v, Bytes::from_array(block))
-    self.buf = []
-  }
+///| 压缩 `buf` 中的完整分组并清零缓冲计数。
+fn Sm3::flush(self : Sm3) -> Unit {
+  sm3_compress(self.v, Bytes::from_array(self.buf), 0)
+  self.buf_len = 0
 }
 
 ///|
 /// 吸收消息片段。可多次调用，次序即消息的字节次序。
+///| 整块数据自 `msg` 原位压缩（零拷贝），仅不足一组的尾部入缓冲。
 pub fn Sm3::update(self : Sm3, msg : Bytes) -> Unit {
   self.total_bits = self.total_bits + (msg.length() * 8).to_uint64()
-  for i = 0; i < msg.length(); i = i + 1 {
-    self.absorb(msg[i])
+  let mut pos = 0
+  if self.buf_len > 0 {
+    // 先以消息前段补齐缓冲
+    let need = 64 - self.buf_len
+    let take = if msg.length() < need { msg.length() } else { need }
+    for i = 0; i < take; i = i + 1 {
+      self.buf[self.buf_len + i] = msg[i]
+    }
+    self.buf_len = self.buf_len + take
+    pos = take
+    if self.buf_len == 64 {
+      self.flush()
+    }
+  }
+  // 整块原位压缩
+  while msg.length() - pos >= 64 {
+    sm3_compress(self.v, msg, pos)
+    pos = pos + 64
+  }
+  // 尾部入缓冲（到达此处时缓冲必为空）
+  let tail = msg.length() - pos
+  if tail > 0 {
+    for i = 0; i < tail; i = i + 1 {
+      self.buf[i] = msg[pos + i]
+    }
+    self.buf_len = tail
   }
 }
 
@@ -160,13 +182,24 @@ pub fn Sm3::update(self : Sm3, msg : Bytes) -> Unit {
 /// 终结：执行填充（0x80 ‖ k·0x00 ‖ 64 位大端比特长度）并输出 32 字节杂凑值。
 pub fn Sm3::finalize(self : Sm3) -> Bytes {
   let bit_len = self.total_bits
-  self.absorb(b'\x80')
-  while self.buf.length() != 56 {
-    self.absorb(b'\x00')
+  self.buf[self.buf_len] = b'\x80'
+  self.buf_len = self.buf_len + 1
+  if self.buf_len == 64 {
+    self.flush()
+  }
+  if self.buf_len > 56 {
+    for i = self.buf_len; i < 64; i = i + 1 {
+      self.buf[i] = b'\x00'
+    }
+    self.flush()
+  }
+  for i = self.buf_len; i < 56; i = i + 1 {
+    self.buf[i] = b'\x00'
   }
   for k = 0; k < 8; k = k + 1 {
-    self.absorb(((bit_len >> ((7 - k) * 8)) & 0xFF).to_uint().to_byte())
+    self.buf[56 + k] = ((bit_len >> ((7 - k) * 8)) & 0xFF).to_uint().to_byte()
   }
+  self.flush()
   let out : FixedArray[Byte] = FixedArray::make(32, b'\x00')
   for i = 0; i < 8; i = i + 1 {
     @util.be32_store(out, i * 4, self.v[i])
