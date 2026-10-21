@@ -70,42 +70,47 @@ test "sm3 golden vectors" {{
 
 
 def gen_sm4() -> str:
-    """SM4 向量：ECB 与 CBC 模式，随机密钥/IV，明文长度 0..128 全覆盖。"""
+    """SM4 向量：ECB 与 CBC 模式（PKCS#7 填充），随机密钥/IV，明文长度 0..128 全覆盖。"""
     drbg = Drbg(SEED + b"sm4")
+    enc = sm4.CryptSM4()
     lines = []
     for n in range(0, 129):
         key = det_bytes(16, drbg)
         iv = det_bytes(16, drbg)
         msg = det_bytes(n, drbg)
-        ecb_ct = sm4.crypt_ecb(key, bytes(msg))
-        ecb_pt = sm4.decrypt_ecb(key, ecb_ct)
-        assert ecb_pt == msg
-        cbc_ct = sm4.crypt_cbc(key, iv, bytes(msg))
-        cbc_pt = sm4.decrypt_cbc(key, iv, cbc_ct)
-        assert cbc_pt == msg
-        # 字段：key, iv, msg, ecb_ct, ecb_decrypt_roundtrip
+        enc.set_key(key, sm4.SM4_ENCRYPT)
+        ecb_ct = enc.crypt_ecb(msg)
+        cbc_ct = enc.crypt_cbc(iv, msg)
+        dec = sm4.CryptSM4()
+        dec.set_key(key, sm4.SM4_DECRYPT)
+        assert dec.crypt_ecb(ecb_ct) == msg
+        assert dec.crypt_cbc(iv, cbc_ct) == msg
         lines.append(
-            f'    ("{key.hex()}", "{iv.hex()}", "{msg.hex()}", "{ecb_ct.hex()}"),'
+            f'    ("{key.hex()}", "{iv.hex()}", "{msg.hex()}", '
+            f'"{ecb_ct.hex()}", "{cbc_ct.hex()}"),'
         )
     body = "\n".join(lines)
     return f"""///|
 // 自动生成：tests/gen_vectors.py（固定种子 SHA-256 DRBG）。
-// 期望值来源：python-gmssl 3.2.2（ECB/CBC，PKCS#7 填充）。
-// 字段：(key_hex, iv_hex, msg_hex, ecb_ct_hex)；CBC 向量经 openssl 对拍另行覆盖。
+// 期望值来源：python-gmssl 3.2.2（ECB/CBC，PKCS#7 填充），明文长度 0..128 全覆盖。
+// 字段：(key_hex, iv_hex, msg_hex, ecb_ct_hex, cbc_ct_hex)。
 // 请勿手工修改。
 
-test "sm4 ecb golden vectors" {{
-  let vectors : FixedArray[(String, String, String, String)] = [
+test "sm4 ecb/cbc golden vectors" {{
+  let vectors : FixedArray[(String, String, String, String, String)] = [
 {body}
   ]
   for entry in vectors {{
-    let (key_hex, _iv_hex, msg_hex, ecb_ct_hex) = entry
-    let key = @util.hex_decode(key_hex)
+    let (key_hex, iv_hex, msg_hex, ecb_ct_hex, cbc_ct_hex) = entry
+    let key = Sm4Key::new(@util.hex_decode(key_hex))
+    let iv = @util.hex_decode(iv_hex)
     let msg = @util.hex_decode(msg_hex)
-    let expected = @util.hex_decode(ecb_ct_hex)
-    let k = Sm4Key::new(key)
-    inspect(ecb_encrypt(k, msg) == expected, content="true")
-    inspect(ecb_decrypt(k, expected) == msg, content="true")
+    let ecb_ct = @util.hex_decode(ecb_ct_hex)
+    let cbc_ct = @util.hex_decode(cbc_ct_hex)
+    inspect(ecb_encrypt(key, msg) == ecb_ct, content="true")
+    inspect(ecb_decrypt(key, ecb_ct) == msg, content="true")
+    inspect(cbc_encrypt(key, iv, msg) == cbc_ct, content="true")
+    inspect(cbc_decrypt(key, iv, cbc_ct) == msg, content="true")
   }}
 }}
 """

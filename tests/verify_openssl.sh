@@ -1,12 +1,12 @@
 #!/bin/sh
-# OpenSSL 命令行工具对拍：SM3 摘要。
+# OpenSSL 命令行工具对拍：SM3 摘要与 SM4 加密。
 #
 # 期望值与 tests/gen_vectors.py 生成的金标准同源（python-gmssl）。
 # 本脚本以 OpenSSL 独立重算并逐字节比对，确认三个实现来源一致：
 # 规范附录向量（见各包 *_test.mbt）、python-gmssl、OpenSSL。
 #
 # 用法：sh tests/verify_openssl.sh
-# 依赖：openssl 3.x（支持 sm3 摘要），python3（仅作十六进制解码）
+# 依赖：openssl 3.x（支持 sm3 摘要与 sm4-ecb/sm4-cbc），python3（仅作十六进制解码）
 
 set -eu
 
@@ -34,6 +34,51 @@ check_sm3() {
     fi
 }
 
+# check_sm4_enc NAME CIPHER KEY_HEX IV_HEX MSG_HEX EXPECTED_HEX PAD_FLAG
+# PAD_FLAG 为 nopad 时不启用填充（输入须为整块），否则启用 PKCS#7。
+check_sm4_enc() {
+    name=$1
+    cipher=$2
+    padflag=$7
+    hex_to_file "$5" "$TMPDIR_M/msg.bin"
+    : > "$TMPDIR_M/out.bin"
+    if [ "$padflag" = "nopad" ]; then
+        openssl enc "-$cipher" -K "$3" -iv "$4" -nosalt -nopad \
+            -in "$TMPDIR_M/msg.bin" -out "$TMPDIR_M/out.bin" 2>/dev/null || true
+    else
+        openssl enc "-$cipher" -K "$3" -iv "$4" -nosalt \
+            -in "$TMPDIR_M/msg.bin" -out "$TMPDIR_M/out.bin" 2>/dev/null || true
+    fi
+    actual=$(python3 -c "print(open('$TMPDIR_M/out.bin','rb').read().hex())")
+    expected=$(printf '%s' "$6" | tr 'A-F' 'a-f')
+    if [ "$actual" = "$expected" ]; then
+        pass=$((pass + 1))
+    else
+        echo "FAIL $cipher/$name: expected $6, got $actual"
+        fail=$((fail + 1))
+    fi
+}
+
+# check_sm4_ecb NAME KEY_HEX MSG_HEX EXPECTED_HEX —— 无填充单块/整块
+check_sm4_ecb() {
+    check_sm4_enc "$1" sm4-ecb "$2" "00000000000000000000000000000000" "$3" "$4" nopad
+}
+
+# check_sm4_ecb_padded NAME KEY_HEX MSG_HEX EXPECTED_HEX —— PKCS#7 填充
+check_sm4_ecb_padded() {
+    check_sm4_enc "$1" sm4-ecb "$2" "00000000000000000000000000000000" "$3" "$4" pad
+}
+
+# check_sm4_cbc NAME KEY_HEX IV_HEX MSG_HEX EXPECTED_HEX —— 无填充整块
+check_sm4_cbc() {
+    check_sm4_enc "$1" sm4-cbc "$2" "$3" "$4" "$5" nopad
+}
+
+# check_sm4_cbc_padded NAME KEY_HEX IV_HEX MSG_HEX EXPECTED_HEX —— PKCS#7 填充
+check_sm4_cbc_padded() {
+    check_sm4_enc "$1" sm4-cbc "$2" "$3" "$4" "$5" pad
+}
+
 # ---------- SM3：规范附录向量与代表性长度 ----------
 
 # GB/T 32905-2016 附录 A.1
@@ -52,6 +97,29 @@ check_sm3 "len-64" "$(python3 -c "print('61'*64)")" \
     "616ec433c359e7c2b19f360e2b8f2a1b6e9ed76b8dc1a7d207b31a5341c611e9"
 check_sm3 "len-128" "$(python3 -c "print('61'*128)")" \
     "5fd947effbe82a5925faaee9123d43cea200cc257b28ed797505694b4bb020f6"
+
+# ---------- SM4：规范附录向量（GB/T 32907-2016 附录 A） ----------
+
+# A.1 第一组：单块加密
+check_sm4_ecb "gb-block1" "0123456789ABCDEFFEDCBA9876543210" \
+    "0123456789ABCDEFFEDCBA9876543210" \
+    "681edf34d206965e86b3e94f536e4246"
+
+# ---------- SM4：PKCS#7 填充下的 ECB/CBC 代表性向量（python-gmssl 计算） ----------
+
+SM4_K="0123456789ABCDEFFEDCBA9876543210"
+SM4_IV="000102030405060708090A0B0C0D0E0F"
+
+check_sm4_ecb_padded "pkcs7-msg8" "$SM4_K" "0123456789ABCDEF" \
+    "ccd1b5b36941e70a3916d62edc78a969"
+check_sm4_ecb_padded "pkcs7-msg32" "$SM4_K" \
+    "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF" \
+    "3c2c71d577fa4fd41bd13a69141a1757ccd1b5b36941e70a3916d62edc78a969"
+check_sm4_cbc_padded "pkcs7-msg8" "$SM4_K" "$SM4_IV" "0123456789ABCDEF" \
+    "b76b6d80da0337286984c18855d8b52a"
+check_sm4_cbc_padded "pkcs7-msg32" "$SM4_K" "$SM4_IV" \
+    "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF" \
+    "8f57b32e3c0b8061cd25a8e2100c345b77b4c389d8b584c0608c76d555bf132d"
 
 # ---------- 汇总 ----------
 
