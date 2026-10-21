@@ -75,15 +75,47 @@ fn sm4_l_prime(b : UInt32) -> UInt32 {
 }
 
 ///|
-/// 轮函数中的合成置换 T = L ∘ τ。
-fn sm4_t(x : UInt32) -> UInt32 {
-  sm4_l(sm4_tau(x))
+/// 轮函数中的合成置换 T = L ∘ τ（经由 T 表计算，见 sm4_t_fast）。
+/// 密钥扩展使用 T′ = L′ ∘ τ。
+fn sm4_t_prime(x : UInt32) -> UInt32 {
+  sm4_l_prime(sm4_tau(x))
 }
 
 ///|
-/// 密钥扩展中的合成置换 T′ = L′ ∘ τ。
-fn sm4_t_prime(x : UInt32) -> UInt32 {
-  sm4_l_prime(sm4_tau(x))
+/// 构造 T 表：table[b] = L(SBOX[b] <<< (8·shift_bytes))。
+/// L 为 GF(2) 线性变换，故 T(x) 可按字节分解为四个 T 表查找结果的异或；
+/// 该优化手段与 GmSSL 的 SM4 实现一致。
+fn sm4_build_t_table(byte_position : Int32) -> FixedArray[UInt32] {
+  let table : FixedArray[UInt32] = FixedArray::make(256, 0)
+  for b = 0; b < 256; b = b + 1 {
+    let word = sm4_sbox[b].to_uint() << (byte_position * 8)
+    table[b] = sm4_l(word)
+  }
+  table
+}
+
+///|
+/// T 查找表：T(x) = T0[x₀] ⊕ T1[x₁] ⊕ T2[x₂] ⊕ T3[x₃]，
+/// x₀..x₃ 为 x 自高至低的四个字节。
+let sm4_t0 : FixedArray[UInt32] = sm4_build_t_table(3)
+
+///|
+let sm4_t1 : FixedArray[UInt32] = sm4_build_t_table(2)
+
+///|
+let sm4_t2 : FixedArray[UInt32] = sm4_build_t_table(1)
+
+///|
+let sm4_t3 : FixedArray[UInt32] = sm4_build_t_table(0)
+
+///|
+/// 经 T 表计算的合成置换 T(x)，与直接计算 L(τ(x)) 等价
+/// （等价性由白盒测试锁定）。
+fn sm4_t_fast(x : UInt32) -> UInt32 {
+  sm4_t0[((x >> 24) & 0xFF).reinterpret_as_int()] ^
+  sm4_t1[((x >> 16) & 0xFF).reinterpret_as_int()] ^
+  sm4_t2[((x >> 8) & 0xFF).reinterpret_as_int()] ^
+  sm4_t3[(x & 0xFF).reinterpret_as_int()]
 }
 
 ///|
@@ -135,7 +167,7 @@ fn sm4_crypt_block(
   }
   for i = 0; i < 32; i = i + 1 {
     let r = if decrypt { rk[31 - i] } else { rk[i] }
-    x[i + 4] = x[i] ^ sm4_t(x[i + 1] ^ x[i + 2] ^ x[i + 3] ^ r)
+    x[i + 4] = x[i] ^ sm4_t_fast(x[i + 1] ^ x[i + 2] ^ x[i + 3] ^ r)
   }
   let out : FixedArray[Byte] = FixedArray::make(16, b'\x00')
   for i = 0; i < 4; i = i + 1 {
