@@ -6,6 +6,10 @@ pub fn hash(Bytes) -> Bytes
 
 pub fn hash_hex(Bytes) -> String
 
+pub fn hmac(Bytes, Bytes) -> Bytes
+
+pub fn hmac_hex(Bytes, Bytes) -> String
+
 // Errors
 
 // Types and methods

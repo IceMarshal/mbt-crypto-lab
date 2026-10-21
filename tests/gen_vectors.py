@@ -187,6 +187,43 @@ test "sm4 ctr golden vectors" {{
 """
 
 
+def gen_hmac() -> str:
+    """HMAC-SM3 向量：密钥长度（含空/短/分组界/超分组）× 消息边界长度矩阵。"""
+    import hashlib
+    import hmac as py_hmac
+
+    drbg = Drbg(SEED + b"hmac-sm3")
+    key_lens = [0, 1, 20, 63, 64, 65, 100, 200]
+    msg_lens = [0, 1, 55, 56, 63, 64, 65, 127, 128, 129, 1000]
+    lines = []
+    for kl in key_lens:
+        key = det_bytes(kl, drbg)
+        for ml in msg_lens:
+            msg = det_bytes(ml, drbg)
+            mac = py_hmac.new(key, msg, "sm3").digest()
+            assert len(mac) == 32
+            lines.append(f'    ("{key.hex()}", "{msg.hex()}", "{mac.hex()}"),')
+    body = "\n".join(lines)
+    return f"""///|
+// 自动生成：tests/gen_vectors.py（固定种子 SHA-256 DRBG）。
+// 期望值来源：python hmac 标准库（digestmod=sm3，hashlib 原生实现），
+// 并经 OpenSSL dgst -sm3 -mac HMAC -macopt hexkey 抽样核对一致。
+// 密钥长度 0/1/20/63/64/65/100/200 × 消息边界长度 11 档，共 88 组。
+// 字段：(key_hex, msg_hex, mac_hex)。
+// 请勿手工修改。
+
+test "sm3 hmac golden vectors" {{
+  let vectors : FixedArray[(String, String, String)] = [
+{body}
+  ]
+  for entry in vectors {{
+    let (key_hex, msg_hex, mac_hex) = entry
+    inspect(hmac(@util.hex_decode(key_hex), @util.hex_decode(msg_hex)) == @util.hex_decode(mac_hex), content="true")
+  }}
+}}
+"""
+
+
 def string_literals(text: str) -> list:
     """提取 MoonBit 源码中全部字符串字面量，用于语义比较。
 
@@ -205,6 +242,7 @@ def main() -> None:
     if "--with-sm4" in sys.argv:
         targets.append(("src/sm4/golden_wbtest.mbt", gen_sm4))
         targets.append(("src/sm4/ctr_golden_wbtest.mbt", gen_ctr))
+        targets.append(("src/sm3/hmac_golden_wbtest.mbt", gen_hmac))
     mismatch = 0
     for relpath, gen in targets:
         content = gen()
