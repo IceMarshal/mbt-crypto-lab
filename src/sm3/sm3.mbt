@@ -54,17 +54,19 @@ fn p1(x : UInt32) -> UInt32 {
   x ^ @util.rotl32(x, 15) ^ @util.rotl32(x, 23)
 }
 
-///| 常量 T_j：0x79CC4519（0 ≤ j ≤ 15），0x7A879D8A（16 ≤ j ≤ 63）。
-
-///|
-/// 压缩函数中按 ROTL(T_j, j mod 32) 参与第 j 轮 SS1 的计算。
-fn t_j(j : Int32) -> UInt32 {
-  if j < 16 {
-    0x79CC4519
-  } else {
-    0x7A879D8A
+///| 常量 T_j：0x79CC4519（0 ≤ j ≤ 15），0x7A879D8A（16 ≤ j ≤ 63）；
+/// 压缩函数第 j 轮按 TR_j = ROTL(T_j, j mod 32) 参与 SS1 计算。
+/// 此处在初始化时一次性预计算 64 项表，消除压缩循环内的重复移位。
+fn sm3_tr_table() -> FixedArray[UInt32] {
+  let tr : FixedArray[UInt32] = FixedArray::make(64, 0)
+  for j = 0; j < 64; j = j + 1 {
+    let t : UInt32 = if j < 16 { 0x79CC4519 } else { 0x7A879D8A }
+    tr[j] = @util.rotl32(t, j % 32)
   }
+  tr
 }
+
+let sm3_tr : FixedArray[UInt32] = sm3_tr_table()
 
 ///|
 /// 压缩函数 CF：以 512 位分组 `block` 更新 256 位杂凑值 `v`。
@@ -92,7 +94,7 @@ fn sm3_compress(v : FixedArray[UInt32], block : Bytes) -> Unit {
   let mut h = v[7]
   for j = 0; j < 64; j = j + 1 {
     let a12 = @util.rotl32(a, 12)
-    let ss1 = @util.rotl32(a12 + e + @util.rotl32(t_j(j), j % 32), 7)
+    let ss1 = @util.rotl32(a12 + e + sm3_tr[j], 7)
     let ss2 = ss1 ^ a12
     let tt1 = ff_j(j, a, b, c) + d + ss2 + w1[j]
     let tt2 = gg_j(j, e, f, g) + h + ss1 + w[j]
