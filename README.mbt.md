@@ -8,8 +8,9 @@
 |---|---|
 | SM3 杂凑算法 | GB/T 32905-2016《信息安全技术 SM3密码杂凑算法》 |
 | SM4 分组密码 | GB/T 32907-2016《信息安全技术 SM4分组密码算法》 |
-| 分组工作模式 ECB、CBC | NIST SP 800-38A |
+| 分组工作模式 ECB、CBC、CTR | NIST SP 800-38A |
 | PKCS#7 填充 | RFC 5652 §6.3 |
+| HMAC 消息认证码构造 | RFC 2104 |
 
 ## 2 构建与测试
 
@@ -51,6 +52,8 @@ moonbitlang/core 的 bench 包（`src/benchmarks`）。
 | `Sm3::new() -> Sm3` | 构造初始状态（IV、零计数）的上下文 |
 | `Sm3::update(self, msg : Bytes) -> Unit` | 吸收消息片段，可多次调用，次序即字节次序 |
 | `Sm3::finalize(self) -> Bytes` | 执行填充并终结，输出 32 字节杂凑值 |
+| `hmac(key : Bytes, msg : Bytes) -> Bytes` | HMAC-SM3（RFC 2104），输出 32 字节认证码 |
+| `hmac_hex(key : Bytes, msg : Bytes) -> String` | HMAC-SM3，输出 64 字符小写十六进制 |
 
 ### 3.3 src/sm4（GB/T 32907-2016）
 
@@ -64,19 +67,27 @@ moonbitlang/core 的 bench 包（`src/benchmarks`）。
 | `ecb_decrypt(key : Sm4Key, ct : Bytes) -> Bytes raise` | 密文须为 16 的非零整数倍，填充校验失败抛出 `Failure` |
 | `cbc_encrypt(key : Sm4Key, iv : Bytes, msg : Bytes) -> Bytes raise` | SM4-CBC 加密；`iv` 长度须为 16 字节 |
 | `cbc_decrypt(key : Sm4Key, iv : Bytes, ct : Bytes) -> Bytes raise` | 兼有 `iv` 长度与密文整块两项约束 |
+| `ctr_crypt(key : Sm4Key, iv : Bytes, msg : Bytes) -> Bytes raise` | SM4-CTR（SP 800-38A §6.5），加解密同一函数，无填充，输出与输入等长；`iv` 为初始计数器分组，128 位大端递增 |
 
 ## 4 验证方法
 
-正确性验证采用三个相互独立的期望值来源：
+正确性验证采用多个相互独立的期望值来源：
 
 1. 规范附录 A 的标准向量，硬编码断言于各包黑盒测试；
-2. python-gmssl 3.2.2 生成的确定性向量（`tests/gen_vectors.py`，
+2. python 侧独立实现生成的确定性向量（`tests/gen_vectors.py`，
    SHA-256 计数器模式 DRBG 固定种子）：SM3 覆盖长度 0–256 全部取值
-   及 512/1024/8192 字节多块输入共 260 组，SM4 覆盖明文长度 0–128
-   全部取值的 ECB 与 CBC 共 129 组；生成的 MoonBit 测试文件入库，
-   `--check` 模式依据字面量序列校验可复现性；
+   及 512/1024/8192 字节多块输入共 260 组（python-gmssl 3.2.2 计算）；
+   SM4 覆盖明文长度 0–128 全部取值的 ECB 与 CBC 共 129 组
+   （python-gmssl 计算）；SM4-CTR 共 132 组，含长度 0–128 全部取值
+   与 3 组计数器进位/回绕 IV 用例（python-gmssl 未提供 CTR 模式，
+   该模式以 OpenSSL 子进程为独立期望值来源）；HMAC-SM3 共 88 组，
+   密钥长度 0/1/20/63/64/65/100/200 × 消息边界长度 11 档
+   （python hmac 标准库 + hashlib 原生 sm3 计算）；
+   生成的 MoonBit 测试文件入库，`--check` 模式依据字面量序列
+   校验可复现性；
 3. OpenSSL 3.0.17 命令行工具独立重算（`tests/verify_openssl.sh`，
-   共 12 项检查）。
+   共 16 项检查：SM3 摘要 7 项、SM4-ECB/CBC 5 项、SM4-CTR 2 项、
+   HMAC-SM3 2 项）。
 
 规范示例值：
 
@@ -137,10 +148,12 @@ SM4 4096 分组为 2.71 ms，批处理吸收与寄存器轮转分别带来
 
 [4] Housley R. Cryptographic Message Syntax (CMS): RFC 5652[S]. IETF, 2009.
 
-[5] 国家密码管理局. SM3密码杂凑算法[EB/OL]. 2010.
+[5] Krawczyk H, Bellare M, Canetti R. HMAC: Keyed-Hashing for Message Authentication: RFC 2104[S]. IETF, 1997.
 
-[6] Chen L, Jiang Z. The SM3 Cryptographic Hash Function: draft-sca-cfrg-sm3[I]. IETF, 2022.
+[6] 国家密码管理局. SM3密码杂凑算法[EB/OL]. 2010.
 
-[7] GmSSL 项目. https://github.com/guanzhi/GmSSL
+[7] Chen L, Jiang Z. The SM3 Cryptographic Hash Function: draft-sca-cfrg-sm3[I]. IETF, 2022.
 
-[8] OpenSSL 3.x 源码，crypto/sm3、crypto/sm4 目录.
+[8] GmSSL 项目. https://github.com/guanzhi/GmSSL
+
+[9] OpenSSL 3.x 源码，crypto/sm3、crypto/sm4 目录.
