@@ -12,6 +12,10 @@ pub fn hex_decode(String) -> Bytes raise
 
 pub fn hex_encode(Bytes) -> String
 
+pub fn pkcs7_pad(Bytes, Int32) -> Bytes
+
+pub fn pkcs7_unpad(Bytes, Int32) -> Bytes raise
+
 pub fn rotl32(UInt32, Int32) -> UInt32
 
 // Errors
