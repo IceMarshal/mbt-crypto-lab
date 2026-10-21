@@ -150,29 +150,52 @@ pub fn Sm4Key::from_hex(s : String) -> Sm4Key raise Error {
   Sm4Key::new(@util.hex_decode(s))
 }
 
-///| 内部分组处理（无长度校验）：32 轮迭代
-
+///| 字级轮函数核心：输入四个 32 位字，32 轮迭代
 ///| X[i+4] = X[i] ⊕ T(X[i+1] ⊕ X[i+2] ⊕ X[i+3] ⊕ rk_i)，
+///| 以四个寄存器轮转实现；解密时轮密钥按逆序取用。
+///| 返回终态 (X35, X34, X33, X32)。
+fn sm4_crypt_words(
+  rk : FixedArray[UInt32],
+  x0 : UInt32,
+  x1 : UInt32,
+  x2 : UInt32,
+  x3 : UInt32,
+  decrypt : Bool,
+) -> (UInt32, UInt32, UInt32, UInt32) {
+  let mut a = x0
+  let mut b = x1
+  let mut c = x2
+  let mut d = x3
+  for i = 0; i < 32; i = i + 1 {
+    let r = if decrypt { rk[31 - i] } else { rk[i] }
+    let nx = a ^ sm4_t_fast(b ^ c ^ d ^ r)
+    a = b
+    b = c
+    c = d
+    d = nx
+  }
+  (d, c, b, a)
+}
 
-///|
-/// 解密时轮密钥按逆序取用，输出按 (X35, X34, X33, X32) 逆序组装。
+///| 内部分组处理（无长度校验）：经 `sm4_crypt_words` 加解密单个分组。
 fn sm4_crypt_block(
   rk : FixedArray[UInt32],
   block : Bytes,
   decrypt : Bool,
 ) -> Bytes {
-  let x : FixedArray[UInt32] = FixedArray::make(36, 0)
-  for i = 0; i < 4; i = i + 1 {
-    x[i] = @util.be32_load(block, i * 4)
-  }
-  for i = 0; i < 32; i = i + 1 {
-    let r = if decrypt { rk[31 - i] } else { rk[i] }
-    x[i + 4] = x[i] ^ sm4_t_fast(x[i + 1] ^ x[i + 2] ^ x[i + 3] ^ r)
-  }
+  let (y0, y1, y2, y3) = sm4_crypt_words(
+    rk,
+    @util.be32_load(block, 0),
+    @util.be32_load(block, 4),
+    @util.be32_load(block, 8),
+    @util.be32_load(block, 12),
+    decrypt,
+  )
   let out : FixedArray[Byte] = FixedArray::make(16, b'\x00')
-  for i = 0; i < 4; i = i + 1 {
-    @util.be32_store(out, i * 4, x[35 - i])
-  }
+  @util.be32_store(out, 0, y0)
+  @util.be32_store(out, 4, y1)
+  @util.be32_store(out, 8, y2)
+  @util.be32_store(out, 12, y3)
   Bytes::from_array(out)
 }
 

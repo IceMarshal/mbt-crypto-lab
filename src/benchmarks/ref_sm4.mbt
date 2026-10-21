@@ -100,18 +100,24 @@ pub fn ref_key_schedule(key : Bytes) -> FixedArray[UInt32] {
   rk
 }
 
-///| 单块加密（直接计算版）。
+///| 单块加密（直接计算版；轮函数同样以四寄存器轮转实现，
+///| 与产品实现仅合成置换 T 的计算方式不同，用于隔离对照）。
 pub fn ref_encrypt_block(rk : FixedArray[UInt32], block : Bytes) -> Bytes {
-  let x : FixedArray[UInt32] = FixedArray::make(36, 0)
-  for i = 0; i < 4; i = i + 1 {
-    x[i] = ref_be32_load(block, i * 4)
-  }
+  let mut a = ref_be32_load(block, 0)
+  let mut b = ref_be32_load(block, 4)
+  let mut c = ref_be32_load(block, 8)
+  let mut d = ref_be32_load(block, 12)
   for i = 0; i < 32; i = i + 1 {
-    x[i + 4] = x[i] ^ ref_t(x[i + 1] ^ x[i + 2] ^ x[i + 3] ^ rk[i])
+    let nx = a ^ ref_t(b ^ c ^ d ^ rk[i])
+    a = b
+    b = c
+    c = d
+    d = nx
   }
   let out : FixedArray[Byte] = FixedArray::make(16, b'\x00')
-  for i = 0; i < 4; i = i + 1 {
-    ref_be32_store(out, i * 4, x[35 - i])
-  }
+  ref_be32_store(out, 0, d)
+  ref_be32_store(out, 4, c)
+  ref_be32_store(out, 8, b)
+  ref_be32_store(out, 12, a)
   Bytes::from_array(out)
 }
