@@ -138,6 +138,30 @@ check_sm4_ctr "counter-carry" "0123456789ABCDEFFEDCBA9876543210" \
     "$(python3 -c "print(bytes((i*31+13)%256 for i in range(48)).hex())")" \
     "17a9c20247fbaac5d519499678608546417ff55ad564858803d9e90404487ade6b1b05f91a40f2fa73585239e84edb97"
 
+# ---------- HMAC-SM3：RFC 2104 构造（python hmac 计算，openssl 独立核对） ----------
+
+# check_hmac NAME KEY_HEX MSG_HEX EXPECTED_HEX
+check_hmac() {
+    name=$1
+    hex_to_file "$3" "$TMPDIR_M/msg.bin"
+    actual=$(openssl dgst -sm3 -mac HMAC -macopt "hexkey:$2" -r "$TMPDIR_M/msg.bin" | awk '{print $1}')
+    expected=$(printf '%s' "$4" | tr 'A-F' 'a-f')
+    if [ "$actual" = "$expected" ]; then
+        pass=$((pass + 1))
+    else
+        echo "FAIL hmac-sm3/$name: expected $4, got $actual"
+        fail=$((fail + 1))
+    fi
+}
+
+check_hmac "jefe" "4a656665" \
+    "7768617420646f2079612077616e7420666f72206e6f7468696e673f" \
+    "2e87f1d16862e6d964b50a5200bf2b10b764faa9680a296a2405f24bec39f882"
+# 长于分组的密钥（0xaa × 80，先杂凑再分组化）
+check_hmac "longkey" "$(python3 -c "print('aa'*80)")" \
+    "$(python3 -c "print('Test Using Larger Than Block-Size Key - Hash Key First'.encode().hex())")" \
+    "c794651f5455f80546855f744ff50146d5286e1cb677d5088c059cd8b03bb9ce"
+
 # ---------- 汇总 ----------
 
 echo "openssl cross-check: passed=$pass failed=$fail"
