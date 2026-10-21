@@ -2,6 +2,13 @@
 package "icemarshal/crypto-lab/src/sm4"
 
 // Values
+pub fn cbc_decrypt(Sm4Key, Bytes, Bytes) -> Bytes raise
+
+pub fn cbc_encrypt(Sm4Key, Bytes, Bytes) -> Bytes raise
+
+pub fn ecb_decrypt(Sm4Key, Bytes) -> Bytes raise
+
+pub fn ecb_encrypt(Sm4Key, Bytes) -> Bytes
 
 // Errors
 
