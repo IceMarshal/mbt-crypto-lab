@@ -1,0 +1,21 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "icemarshal/crypto-lab/src/sm3"
+
+// Values
+pub fn hash(Bytes) -> Bytes
+
+pub fn hash_hex(Bytes) -> String
+
+// Errors
+
+// Types and methods
+pub struct Sm3 {
+  // private fields
+}
+pub fn Sm3::finalize(Self) -> Bytes
+pub fn Sm3::new() -> Self
+pub fn Sm3::update(Self, Bytes) -> Unit
+
+// Type aliases
+
+// Traits
