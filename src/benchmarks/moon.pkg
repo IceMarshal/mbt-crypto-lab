@@ -1,0 +1,5 @@
+import {
+  "moonbitlang/core/bench",
+  "icemarshal/crypto-lab/src/sm3",
+  "icemarshal/crypto-lab/src/sm4",
+} for "test"

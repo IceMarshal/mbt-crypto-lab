@@ -18,11 +18,14 @@ moon check                                        # 类型检查
 moon test                                         # 运行全部测试
 moon fmt                                          # 源码格式化
 moon info                                         # 更新包接口文件（.mbti）
+moon bench -p icemarshal/crypto-lab/src/benchmarks --release [--target native]   # 性能基准
 python3 tests/gen_vectors.py --check --with-sm4   # 校验金标准向量可复现
 sh tests/verify_openssl.sh                        # OpenSSL 命令行独立对拍
 ```
 
-工具链版本：moon 0.1.20261020 / moonc v0.10.16。本模块不依赖第三方包。
+工具链版本：moon 0.1.20261020 / moonc v0.10.16。
+本模块不依赖第三方包；性能基准使用官方标准库
+moonbitlang/core 的 bench 包（`src/benchmarks`）。
 
 ## 3 包结构与接口定义
 
@@ -94,20 +97,50 @@ sh tests/verify_openssl.sh                        # OpenSSL 命令行独立对�
   (X₃₅, X₃₄, X₃₃, X₃₂) 逆序组装。
 - 运算语义：字运算依赖 MoonBit `UInt32` 模 2³² 回绕语义，
   该语义由 `src/util` 白盒测试显式锁定。
-- 优化：SM4 合成置换 T 采用四张 256 项查找表——利用 L 的 GF(2) 线性
-  将 S 盒替换与线性变换融合（同 GmSSL 手段），与直接计算 L(τ(x)) 的
-  等价性经 2¹⁶ 采样点测试锁定。
+- 优化：SM4 轮函数以四个寄存器轮转实现（消除逐轮数组访问，为本实现
+  的主要性能因素）；合成置换 T 采用四张 256 项查找表——利用 L 的
+  GF(2) 线性将 S 盒替换与线性变换融合（同 GmSSL 手段），与直接计算
+  L(τ(x)) 的等价性经 2¹⁶ 采样点测试锁定。SM3 消息吸收为批处理路径
+  （整块零拷贝原位压缩），轮常量 TR_j = ROTL(T_j, j mod 32) 预计算。
 - 错误处理：参数约束违反时以 `Failure` 抛出，消息包含实际长度。
 - 实现限制：软件实现，未包含侧信道对抗措施；运行于垃圾回收运行时，
   密钥材料在释放后无法可靠清零。
 
+### 5.1 性能数据
+
+`moon bench --release`，wasm 与 native 后端，10 组重复取均值；
+环境：Intel Core i7-14650HX，moon 0.1.20261020，WSL2 (Linux 6.6)。
+
+| 用例 | wasm | native |
+|---|---|---|
+| SM3 一次性 64 B | 2.03 µs | 615 ns |
+| SM3 一次性 1 KiB | 14.97 µs | 4.62 µs |
+| SM3 一次性 64 KiB | 854 µs（76.8 MiB/s） | 265 µs（246.9 MiB/s） |
+| SM3 流式 64 KiB（1 KiB 分块） | 863 µs | 267 µs |
+| SM4 单块加密 | 236 ns | 115 ns |
+| SM4-ECB 64 KiB（含填充） | 875 µs（74.9 MiB/s） | 433 µs（151.3 MiB/s） |
+| SM4-CBC 64 KiB（含填充） | 885 µs | 429 µs |
+| SM4 4096 分组：T 表 对 直接计算 | 848 µs 对 888 µs | 446 µs 对 612 µs |
+
+T 表对照在相同寄存器轮转骨架下隔离测量：wasm 后端净增益约 4.7%，
+native 后端约 27%；优化前基线（wasm）SM3 64 KiB 为 1.55 ms、
+SM4 4096 分组为 2.71 ms，批处理吸收与寄存器轮转分别带来
+约 1.8× 与 3.1× 的提升。
+
 ## 6 参考文献
 
 [1] GB/T 32905-2016. 信息安全技术 SM3密码杂凑算法[S]. 北京: 中国标准出版社, 2016.
+
 [2] GB/T 32907-2016. 信息安全技术 SM4分组密码算法[S]. 北京: 中国标准出版社, 2016.
+
 [3] Dworkin M. Recommendation for Block Cipher Modes of Operation: SP 800-38A[R]. NIST, 2001.
+
 [4] Housley R. Cryptographic Message Syntax (CMS): RFC 5652[S]. IETF, 2009.
+
 [5] 国家密码管理局. SM3密码杂凑算法[EB/OL]. 2010.
+
 [6] Chen L, Jiang Z. The SM3 Cryptographic Hash Function: draft-sca-cfrg-sm3[I]. IETF, 2022.
+
 [7] GmSSL 项目. https://github.com/guanzhi/GmSSL
+
 [8] OpenSSL 3.x 源码，crypto/sm3、crypto/sm4 目录.

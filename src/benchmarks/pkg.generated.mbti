@@ -1,0 +1,15 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "icemarshal/crypto-lab/src/benchmarks"
+
+// Values
+pub fn ref_encrypt_block(FixedArray[UInt32], Bytes) -> Bytes
+
+pub fn ref_key_schedule(Bytes) -> FixedArray[UInt32]
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits

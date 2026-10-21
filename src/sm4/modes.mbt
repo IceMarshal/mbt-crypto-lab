@@ -1,69 +1,59 @@
 ///|
 // 分组工作模式 ECB 与 CBC（NIST SP 800-38A 的模式定义），
 // 填充采用 PKCS#7（RFC 5652 §6.3）。
-
-///|
-/// 取 `b` 从 `offset` 起的 16 字节分组。
-fn block_at(b : Bytes, offset : Int32) -> Bytes {
-  let out : FixedArray[Byte] = FixedArray::make(16, b'\x00')
-  for i = 0; i < 16; i = i + 1 {
-    out[i] = b[offset + i]
-  }
-  Bytes::from_array(out)
-}
-
-///|
-/// 两个 16 字节分组按位异或。
-fn xor_block(a : Bytes, b : Bytes) -> Bytes {
-  let out : FixedArray[Byte] = FixedArray::make(16, b'\x00')
-  for i = 0; i < 16; i = i + 1 {
-    out[i] = (a[i].to_int() ^ b[i].to_int()).to_byte()
-  }
-  Bytes::from_array(out)
-}
-
-///|
-/// 将 16 字节分组追加到 `dst`。
-fn push_block(dst : Array[Byte], b : Bytes) -> Unit {
-  for i = 0; i < 16; i = i + 1 {
-    dst.push(b[i])
-  }
-}
-
-///|
-/// 可增长字节组转为 `Bytes`。
-fn array_to_bytes(a : Array[Byte]) -> Bytes {
-  let out : FixedArray[Byte] = FixedArray::make(a.length(), b'\x00')
-  for i = 0; i < a.length(); i = i + 1 {
-    out[i] = a[i]
-  }
-  Bytes::from_array(out)
-}
+//
+// 模式层以字为单位运作：分组经 be32 装载为四个 32 位字，
+// 直接调用字级轮函数核心 sm4_crypt_words，输出写入预分配的
+// 定长数组，避免逐块构造中间 Bytes 与可增长数组的摊还开销。
 
 ///|
 /// SM4-ECB 加密（PKCS#7 填充）：C_i = E_K(P_i)。
 pub fn ecb_encrypt(key : Sm4Key, msg : Bytes) -> Bytes {
   let padded = @util.pkcs7_pad(msg, 16)
-  let out : Array[Byte] = []
-  for i = 0; i < padded.length() / 16; i = i + 1 {
-    push_block(out, sm4_crypt_block(key.rk, block_at(padded, i * 16), false))
+  let n = padded.length()
+  let out : FixedArray[Byte] = FixedArray::make(n, b'\x00')
+  for off = 0; off < n; off = off + 16 {
+    let (y0, y1, y2, y3) = sm4_crypt_words(
+      key.rk,
+      @util.be32_load(padded, off),
+      @util.be32_load(padded, off + 4),
+      @util.be32_load(padded, off + 8),
+      @util.be32_load(padded, off + 12),
+      false,
+    )
+    @util.be32_store(out, off, y0)
+    @util.be32_store(out, off + 4, y1)
+    @util.be32_store(out, off + 8, y2)
+    @util.be32_store(out, off + 12, y3)
   }
-  array_to_bytes(out)
+  Bytes::from_array(out)
 }
 
 ///|
 /// SM4-ECB 解密并校验去除 PKCS#7 填充；密文长度须为 16 的非零整数倍。
 pub fn ecb_decrypt(key : Sm4Key, ct : Bytes) -> Bytes raise Error {
-  if ct.length() == 0 || ct.length() % 16 != 0 {
+  let n = ct.length()
+  if n == 0 || n % 16 != 0 {
     raise Failure(
-      "ecb_decrypt: ciphertext length must be a positive multiple of 16, got \{ct.length()}",
+      "ecb_decrypt: ciphertext length must be a positive multiple of 16, got \{n}",
     )
   }
-  let out : Array[Byte] = []
-  for i = 0; i < ct.length() / 16; i = i + 1 {
-    push_block(out, sm4_crypt_block(key.rk, block_at(ct, i * 16), true))
+  let out : FixedArray[Byte] = FixedArray::make(n, b'\x00')
+  for off = 0; off < n; off = off + 16 {
+    let (y0, y1, y2, y3) = sm4_crypt_words(
+      key.rk,
+      @util.be32_load(ct, off),
+      @util.be32_load(ct, off + 4),
+      @util.be32_load(ct, off + 8),
+      @util.be32_load(ct, off + 12),
+      true,
+    )
+    @util.be32_store(out, off, y0)
+    @util.be32_store(out, off + 4, y1)
+    @util.be32_store(out, off + 8, y2)
+    @util.be32_store(out, off + 12, y3)
   }
-  @util.pkcs7_unpad(array_to_bytes(out), 16)
+  @util.pkcs7_unpad(Bytes::from_array(out), 16)
 }
 
 ///| SM4-CBC 加密（PKCS#7 填充）：C_i = E_K(P_i ⊕ C_{i-1})，C_0 = IV。
@@ -75,18 +65,31 @@ pub fn cbc_encrypt(key : Sm4Key, iv : Bytes, msg : Bytes) -> Bytes raise Error {
     raise Failure("cbc_encrypt: iv must be 16 bytes, got \{iv.length()}")
   }
   let padded = @util.pkcs7_pad(msg, 16)
-  let out : Array[Byte] = []
-  let mut prev = iv
-  for i = 0; i < padded.length() / 16; i = i + 1 {
-    let c = sm4_crypt_block(
+  let n = padded.length()
+  let out : FixedArray[Byte] = FixedArray::make(n, b'\x00')
+  let mut p0 = @util.be32_load(iv, 0)
+  let mut p1 = @util.be32_load(iv, 4)
+  let mut p2 = @util.be32_load(iv, 8)
+  let mut p3 = @util.be32_load(iv, 12)
+  for off = 0; off < n; off = off + 16 {
+    let (y0, y1, y2, y3) = sm4_crypt_words(
       key.rk,
-      xor_block(prev, block_at(padded, i * 16)),
+      p0 ^ @util.be32_load(padded, off),
+      p1 ^ @util.be32_load(padded, off + 4),
+      p2 ^ @util.be32_load(padded, off + 8),
+      p3 ^ @util.be32_load(padded, off + 12),
       false,
     )
-    push_block(out, c)
-    prev = c
+    @util.be32_store(out, off, y0)
+    @util.be32_store(out, off + 4, y1)
+    @util.be32_store(out, off + 8, y2)
+    @util.be32_store(out, off + 12, y3)
+    p0 = y0
+    p1 = y1
+    p2 = y2
+    p3 = y3
   }
-  array_to_bytes(out)
+  Bytes::from_array(out)
 }
 
 ///| SM4-CBC 解密并校验去除 PKCS#7 填充：P_i = D_K(C_i) ⊕ C_{i-1}。
@@ -97,17 +100,31 @@ pub fn cbc_decrypt(key : Sm4Key, iv : Bytes, ct : Bytes) -> Bytes raise Error {
   if iv.length() != 16 {
     raise Failure("cbc_decrypt: iv must be 16 bytes, got \{iv.length()}")
   }
-  if ct.length() == 0 || ct.length() % 16 != 0 {
+  let n = ct.length()
+  if n == 0 || n % 16 != 0 {
     raise Failure(
-      "cbc_decrypt: ciphertext length must be a positive multiple of 16, got \{ct.length()}",
+      "cbc_decrypt: ciphertext length must be a positive multiple of 16, got \{n}",
     )
   }
-  let out : Array[Byte] = []
-  let mut prev = iv
-  for i = 0; i < ct.length() / 16; i = i + 1 {
-    let c = block_at(ct, i * 16)
-    push_block(out, xor_block(sm4_crypt_block(key.rk, c, true), prev))
-    prev = c
+  let out : FixedArray[Byte] = FixedArray::make(n, b'\x00')
+  let mut p0 = @util.be32_load(iv, 0)
+  let mut p1 = @util.be32_load(iv, 4)
+  let mut p2 = @util.be32_load(iv, 8)
+  let mut p3 = @util.be32_load(iv, 12)
+  for off = 0; off < n; off = off + 16 {
+    let c0 = @util.be32_load(ct, off)
+    let c1 = @util.be32_load(ct, off + 4)
+    let c2 = @util.be32_load(ct, off + 8)
+    let c3 = @util.be32_load(ct, off + 12)
+    let (y0, y1, y2, y3) = sm4_crypt_words(key.rk, c0, c1, c2, c3, true)
+    @util.be32_store(out, off, y0 ^ p0)
+    @util.be32_store(out, off + 4, y1 ^ p1)
+    @util.be32_store(out, off + 8, y2 ^ p2)
+    @util.be32_store(out, off + 12, y3 ^ p3)
+    p0 = c0
+    p1 = c1
+    p2 = c2
+    p3 = c3
   }
-  @util.pkcs7_unpad(array_to_bytes(out), 16)
+  @util.pkcs7_unpad(Bytes::from_array(out), 16)
 }
