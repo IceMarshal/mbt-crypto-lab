@@ -114,3 +114,74 @@ fn sm3_compress(v : FixedArray[UInt32], block : Bytes) -> Unit {
   v[6] = v[6] ^ g
   v[7] = v[7] ^ h
 }
+
+///| SM3 流式计算上下文。`v` 为当前 256 位杂凑值，`buf` 缓存不足一个
+
+///|
+/// 分组的字节（长度恒小于 64），`total_bits` 为已吸收的总比特数。
+pub struct Sm3 {
+  priv v : FixedArray[UInt32]
+  priv mut buf : Array[Byte]
+  priv mut total_bits : UInt64
+}
+
+///|
+/// 创建处于初始状态（杂凑值为 IV、计数为零）的 SM3 上下文。
+pub fn Sm3::new() -> Sm3 {
+  { v: sm3_iv(), buf: [], total_bits: 0, }
+}
+
+///|
+/// 吸收单字节；缓冲满 64 字节时立即执行一次压缩。
+fn Sm3::absorb(self : Sm3, b : Byte) -> Unit {
+  self.buf.push(b)
+  if self.buf.length() == 64 {
+    let block : FixedArray[Byte] = FixedArray::make(64, b'\x00')
+    for i = 0; i < 64; i = i + 1 {
+      block[i] = self.buf[i]
+    }
+    sm3_compress(self.v, Bytes::from_array(block))
+    self.buf = []
+  }
+}
+
+///|
+/// 吸收消息片段。可多次调用，次序即消息的字节次序。
+pub fn Sm3::update(self : Sm3, msg : Bytes) -> Unit {
+  self.total_bits = self.total_bits + (msg.length() * 8).to_uint64()
+  for i = 0; i < msg.length(); i = i + 1 {
+    self.absorb(msg[i])
+  }
+}
+
+///|
+/// 终结：执行填充（0x80 ‖ k·0x00 ‖ 64 位大端比特长度）并输出 32 字节杂凑值。
+pub fn Sm3::finalize(self : Sm3) -> Bytes {
+  let bit_len = self.total_bits
+  self.absorb(b'\x80')
+  while self.buf.length() != 56 {
+    self.absorb(b'\x00')
+  }
+  for k = 0; k < 8; k = k + 1 {
+    self.absorb(((bit_len >> ((7 - k) * 8)) & 0xFF).to_uint().to_byte())
+  }
+  let out : FixedArray[Byte] = FixedArray::make(32, b'\x00')
+  for i = 0; i < 8; i = i + 1 {
+    @util.be32_store(out, i * 4, self.v[i])
+  }
+  Bytes::from_array(out)
+}
+
+///|
+/// 一次性计算消息的 SM3 杂凑值，返回 32 字节。
+pub fn hash(msg : Bytes) -> Bytes {
+  let ctx = Sm3::new()
+  ctx.update(msg)
+  ctx.finalize()
+}
+
+///|
+/// 一次性计算消息的 SM3 杂凑值，返回小写十六进制字符串（64 字符）。
+pub fn hash_hex(msg : Bytes) -> String {
+  @util.hex_encode(hash(msg))
+}
