@@ -104,10 +104,17 @@ sh tests/verify_openssl.sh                        # OpenSSL 命令行独立对�
 ## 6 参考文献
 
 [1] GB/T 32905-2016. 信息安全技术 SM3密码杂凑算法[S]. 北京: 中国标准出版社, 2016.
+
 [2] GB/T 32907-2016. 信息安全技术 SM4分组密码算法[S]. 北京: 中国标准出版社, 2016.
+
 [3] Dworkin M. Recommendation for Block Cipher Modes of Operation: SP 800-38A[R]. NIST, 2001.
+
 [4] Housley R. Cryptographic Message Syntax (CMS): RFC 5652[S]. IETF, 2009.
+
 [5] 国家密码管理局. SM3密码杂凑算法[EB/OL]. 2010.
+
 [6] Chen L, Jiang Z. The SM3 Cryptographic Hash Function: draft-sca-cfrg-sm3[I]. IETF, 2022.
+
 [7] GmSSL 项目. https://github.com/guanzhi/GmSSL
+
 [8] OpenSSL 3.x 源码，crypto/sm3、crypto/sm4 目录.
